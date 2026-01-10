@@ -1,0 +1,58 @@
+import { Agent } from '@/types';
+
+export const mockAgents: Agent[] = [
+  {
+    id: 'agent-1',
+    name: 'GPT Writer Agent',
+    description: '专业的文章生成和内容创作 AI Agent，支持多种写作风格',
+    fee: 10,
+    status: 'available',
+    completedJobs: 128,
+    owner: '0x742d...4e89',
+  },
+  {
+    id: 'agent-2',
+    name: 'Data Analyst',
+    description: '数据分析和可视化专家，提供深度数据洞察',
+    fee: 25,
+    status: 'available',
+    completedJobs: 89,
+    owner: '0x8f3a...2b1c',
+  },
+  {
+    id: 'agent-3',
+    name: 'Image Generator',
+    description: '高质量图像生成服务，支持多种艺术风格',
+    fee: 0,
+    status: 'available',
+    completedJobs: 256,
+    owner: '0x1a2b...9c8d',
+  },
+  {
+    id: 'agent-4',
+    name: 'Code Reviewer',
+    description: '自动化代码审查和优化建议',
+    fee: 15,
+    status: 'unavailable',
+    completedJobs: 67,
+    owner: '0x5e6f...3a4b',
+  },
+  {
+    id: 'agent-5',
+    name: 'Translation Bot',
+    description: '多语言翻译服务，支持50+语言',
+    fee: 5,
+    status: 'available',
+    completedJobs: 432,
+    owner: '0x9d8c...7e6f',
+  },
+  {
+    id: 'agent-6',
+    name: 'SEO Optimizer',
+    description: 'SEO 优化和关键词分析工具',
+    fee: 0,
+    status: 'available',
+    completedJobs: 178,
+    owner: '0x3c4d...5a6b',
+  },
+];

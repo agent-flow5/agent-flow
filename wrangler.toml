@@ -1,0 +1,12 @@
+name = "agent-flow"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+pages_build_output_dir = ".open-next/worker"
+
+# Bindings configuration
+# Add your KV, D1, R2, or other bindings here as needed
+# [env.production]
+# [[env.production.kv_namespaces]]
+# binding = "MY_KV"
+# id = "your-kv-id"
