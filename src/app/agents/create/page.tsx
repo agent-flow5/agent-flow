@@ -13,6 +13,7 @@ export default function CreateAgentPage() {
   const toast = useToast();
   const [formData, setFormData] = useState({
     name: '',
+    url: '',
     description: '',
     fee: '',
   });
@@ -51,6 +52,22 @@ export default function CreateAgentPage() {
                   className="w-full px-4 py-2 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-400"
                   placeholder="输入 Agent 名称"
                 />
+              </div>
+
+              <div>
+                <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-2">
+                  Agent 地址 (URL) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="url"
+                  id="url"
+                  required
+                  value={formData.url}
+                  onChange={(e) => setFormData({ ...formData, url: e.target.value })}
+                  className="w-full px-4 py-2 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-100 focus:border-purple-400"
+                  placeholder="https://example.com/agent"
+                />
+                <p className="mt-1 text-sm text-gray-500">Agent 的访问地址</p>
               </div>
 
               <div>
