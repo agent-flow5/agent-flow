@@ -1,29 +1,89 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { Briefcase, Plus, Filter, MessageSquare, Search } from 'lucide-react';
-import { mockJobs } from '@/data/mockJobs';
-import { useWalletStore } from '@/store';
+import { Briefcase, Plus, Filter, Search, RefreshCw } from 'lucide-react';
+import { useWalletStore } from '@/store/walletStore';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { jobStatusConfig } from '@/lib/statusConfig';
+import { jobService, JobDto } from '@/lib/api/services/jobs';
+import { useToast } from '@/contexts/ToastContext';
 
 export default function JobsPage() {
   const [activeTab, setActiveTab] = useState<'all' | 'my'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [jobs, setJobs] = useState<JobDto[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   const { isConnected, address } = useWalletStore();
+  const toast = useToast();
 
-  const filteredJobs = mockJobs.filter((job) => {
-    const tabMatch = activeTab === 'all' || job.owner === address;
-    const statusMatch = statusFilter === 'all' || job.status === statusFilter;
-    const searchMatch = searchQuery === '' || job.title.toLowerCase().includes(searchQuery.toLowerCase());
-    return tabMatch && statusMatch && searchMatch;
-  });
+  const fetchJobs = async () => {
+    if (!isConnected) {
+      setJobs([]);
+      setIsLoading(false);
+      return;
+    }
 
-  const myJobsCount = mockJobs.filter((j) => j.owner === address).length;
+    setIsLoading(true);
+    try {
+      const data = await jobService.getJobList();
+      setJobs(data);
+    } catch (error) {
+      console.error('获取任务列表失败:', error);
+      toast.error('获取任务列表失败');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchJobs();
+  }, [isConnected]);
+
+  const filteredJobs = useMemo(() => {
+    let result = jobs;
+
+    // 状态过滤
+    if (statusFilter !== 'all') {
+      result = result.filter((job) => job.status === statusFilter);
+    }
+
+    // 搜索过滤
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter((job) =>
+        job.title.toLowerCase().includes(query) ||
+        job.description.toLowerCase().includes(query)
+      );
+    }
+
+    return result;
+  }, [jobs, statusFilter, searchQuery]);
+
+  const handleRefresh = async () => {
+    await fetchJobs();
+    toast.success('已刷新');
+  };
+
+  // 格式化日期
+  const formatDate = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return dateStr;
+    }
+  };
 
   return (
     <div className="min-h-screen">
@@ -34,17 +94,23 @@ export default function JobsPage() {
             <h1 className="text-3xl font-bold text-gray-800 mb-2">Jobs</h1>
             <p className="text-gray-600">管理和跟踪 AI 任务</p>
           </div>
-          {isConnected && (
-            <Link href="/jobs/create">
-              <Button>
-                <Plus className="w-5 h-5" />
-                创建任务
-              </Button>
-            </Link>
-          )}
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              刷新
+            </Button>
+            {isConnected && (
+              <Link href="/jobs/create">
+                <Button>
+                  <Plus className="w-5 h-5" />
+                  创建任务
+                </Button>
+              </Link>
+            )}
+          </div>
         </div>
 
-        {/* Tabs */}
+        {/* Stats */}
         <div className="flex items-center gap-4 mb-6">
           <button
             onClick={() => setActiveTab('all')}
@@ -54,7 +120,7 @@ export default function JobsPage() {
                 : 'bg-white/70 text-gray-600 hover:bg-white'
             }`}
           >
-            全部任务 ({mockJobs.length})
+            全部任务 ({jobs.length})
           </button>
           <button
             onClick={() => setActiveTab('my')}
@@ -64,7 +130,7 @@ export default function JobsPage() {
                 : 'bg-white/70 text-gray-600 hover:bg-white'
             }`}
           >
-            我的任务 ({myJobsCount})
+            我的任务 ({jobs.length})
           </button>
         </div>
 
@@ -125,15 +191,25 @@ export default function JobsPage() {
         </Card>
 
         {/* Jobs List */}
-        <div className="space-y-4">
-          {filteredJobs.length === 0 ? (
-            <Card className="p-12 text-center">
-              <Briefcase className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">暂无任务</p>
-            </Card>
-          ) : (
-            filteredJobs.map((job) => {
-              const statusInfo = jobStatusConfig[job.status];
+        {isLoading ? (
+          <div className="text-center py-12">
+            <RefreshCw className="w-12 h-12 text-gray-400 animate-spin mx-auto mb-4" />
+            <p className="text-gray-500">加载中...</p>
+          </div>
+        ) : !isConnected ? (
+          <Card className="p-12 text-center">
+            <Briefcase className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600">请先连接钱包以查看任务</p>
+          </Card>
+        ) : filteredJobs.length === 0 ? (
+          <Card className="p-12 text-center">
+            <Briefcase className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600">暂无任务</p>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {filteredJobs.map((job) => {
+              const statusInfo = jobStatusConfig[job.status] || { label: job.status, variant: 'default' as const };
               return (
                 <Card key={job.id} className="p-6 hover:border-purple-200 hover:shadow-lg transition-all">
                   <div className="flex items-start justify-between mb-4">
@@ -141,23 +217,17 @@ export default function JobsPage() {
                       <div className="flex items-center gap-3 mb-2 flex-wrap">
                         <h3 className="text-xl font-semibold text-gray-800">{job.title}</h3>
                         <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
-                        {job.executable && <Badge variant="success">可执行</Badge>}
                       </div>
                       <div className="flex items-center gap-4 text-sm text-gray-600 flex-wrap">
-                        <span>创建者: {job.owner}</span>
+                        <span>分类: {job.category}</span>
                         <span>•</span>
-                        <span>{job.createdAt}</span>
-                        {job.agent && (
-                          <>
-                            <span>•</span>
-                            <span>Agent: {job.agent}</span>
-                          </>
-                        )}
+                        <span>{formatDate(job.createdAt)}</span>
+                        <span>•</span>
+                        <span>Agent ID: {job.agentId}</span>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-600 mb-1">赏金</p>
-                      <p className="text-2xl font-bold text-purple-600">{job.reward} AGF</p>
+                      {job.description && (
+                        <p className="mt-2 text-gray-600 line-clamp-2">{job.description}</p>
+                      )}
                     </div>
                   </div>
 
@@ -165,16 +235,12 @@ export default function JobsPage() {
                     <Link href={`/jobs/${job.id}`}>
                       <Button variant="secondary">查看详情</Button>
                     </Link>
-                    <Button variant="outline">
-                      <MessageSquare className="w-4 h-4" />
-                      进入会话
-                    </Button>
                   </div>
                 </Card>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

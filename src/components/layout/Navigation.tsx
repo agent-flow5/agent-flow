@@ -4,9 +4,10 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Wallet, Menu, X } from 'lucide-react';
+import { Wallet, Menu, X, Loader2 } from 'lucide-react';
 import { useWalletStore } from '@/store';
 import { Button } from '@/components/ui/Button';
+import { useToast } from '@/contexts/ToastContext';
 
 interface NavItem {
   href: string;
@@ -24,7 +25,28 @@ const navItems: NavItem[] = [
 export function Navigation() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const pathname = usePathname();
-  const { isConnected, address, connect, disconnect } = useWalletStore();
+  const { isConnected, address, isLoading, connect, disconnect } = useWalletStore();
+  const toast = useToast();
+
+  const handleConnect = async () => {
+    try {
+      await connect();
+      // 检查连接后的状态
+      const state = useWalletStore.getState();
+      if (state.isConnected) {
+        toast.success('钱包连接成功');
+      } else if (state.error) {
+        toast.error(state.error);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '连接失败');
+    }
+  };
+
+  const handleDisconnect = () => {
+    disconnect();
+    toast.info('钱包已断开');
+  };
 
   const isActive = (href: string) => {
     if (href === '/') {
@@ -76,19 +98,25 @@ export function Navigation() {
             {isConnected ? (
               <div className="flex items-center gap-3">
                 <div className="px-4 py-2 bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg border border-purple-200">
-                  <span className="text-sm font-medium text-purple-700">{address}</span>
+                  <span className="text-sm font-medium text-purple-700">
+                    {address.slice(0, 6)}...{address.slice(-4)}
+                  </span>
                 </div>
                 <button
-                  onClick={disconnect}
+                  onClick={handleDisconnect}
                   className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
                 >
                   断开
                 </button>
               </div>
             ) : (
-              <Button onClick={connect}>
-                <Wallet className="w-4 h-4" />
-                连接钱包
+              <Button onClick={handleConnect} disabled={isLoading}>
+                {isLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Wallet className="w-4 h-4" />
+                )}
+                {isLoading ? '连接中...' : '连接钱包'}
               </Button>
             )}
           </div>
@@ -124,11 +152,13 @@ export function Navigation() {
                 {isConnected ? (
                   <div className="space-y-2">
                     <div className="px-4 py-2 bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg border border-purple-200">
-                      <span className="text-sm font-medium text-purple-700">{address}</span>
+                      <span className="text-sm font-medium text-purple-700">
+                        {address.slice(0, 6)}...{address.slice(-4)}
+                      </span>
                     </div>
                     <button
                       onClick={() => {
-                        disconnect();
+                        handleDisconnect();
                         setIsMobileMenuOpen(false);
                       }}
                       className="w-full px-4 py-2 text-sm text-gray-600 hover:bg-purple-50 rounded-lg text-left"
@@ -139,13 +169,18 @@ export function Navigation() {
                 ) : (
                   <Button
                     className="w-full"
+                    disabled={isLoading}
                     onClick={() => {
-                      connect();
+                      handleConnect();
                       setIsMobileMenuOpen(false);
                     }}
                   >
-                    <Wallet className="w-4 h-4" />
-                    连接钱包
+                    {isLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Wallet className="w-4 h-4" />
+                    )}
+                    {isLoading ? '连接中...' : '连接钱包'}
                   </Button>
                 )}
               </div>

@@ -1,55 +1,137 @@
 'use client';
 
-import { useState } from 'react';
-import { Copy, Wallet as WalletIcon, Lock, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Copy, Wallet as WalletIcon, Lock, ArrowUpRight, ArrowDownLeft, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { DepositDialog } from '@/components/features/wallet/DepositDialog';
 import { WithdrawDialog } from '@/components/features/wallet/WithdrawDialog';
+import { useWalletStore } from '@/store/walletStore';
+import { walletService, Withdrawal } from '@/lib/api/services/wallet';
+import { useToast } from '@/contexts/ToastContext';
 
 export default function WalletPage() {
   const [showDepositDialog, setShowDepositDialog] = useState(false);
   const [showWithdrawDialog, setShowWithdrawDialog] = useState(false);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-  // Mock data
-  const usdtBalance = 1250.5;
-  const aptBalance = 1250.5;
-  const frozenBalance = 930.5;
-  const walletAddress = '0x742d...4689';
+  const { isConnected, address, balance, frozenBalance, refreshBalance, isLoading } = useWalletStore();
+  const toast = useToast();
 
-  const transactions = [
-    { id: 1, type: 'deposit', currency: 'APT', amount: 100, date: '2024-01-21 14:32', status: '已完成' },
-    { id: 2, type: 'withdraw', currency: 'USDT', amount: -50, date: '2024-01-20 09:15', status: '已完成' },
-    { id: 3, type: 'deposit', currency: 'APT', amount: 200, date: '2024-01-19 16:48', status: '已完成' },
-    { id: 4, type: 'withdraw', currency: 'USDT', amount: -30, date: '2024-01-18 11:23', status: '已完成' },
-    { id: 5, type: 'deposit', currency: 'APT', amount: 500, date: '2024-01-17 20:05', status: '已完成' },
-  ];
+  // 获取提现记录
+  const fetchWithdrawals = async () => {
+    if (!isConnected) return;
+
+    setIsLoadingHistory(true);
+    try {
+      const data = await walletService.getWithdrawals();
+      setWithdrawals(data);
+    } catch (error) {
+      console.error('获取提现记录失败:', error);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isConnected) {
+      fetchWithdrawals();
+    }
+  }, [isConnected]);
 
   const handleCopyAddress = () => {
-    navigator.clipboard.writeText(walletAddress);
+    if (address) {
+      navigator.clipboard.writeText(address);
+      toast.success('地址已复制');
+    }
   };
+
+  const handleRefresh = async () => {
+    await refreshBalance();
+    await fetchWithdrawals();
+    toast.success('已刷新');
+  };
+
+  // 格式化地址显示
+  const formatAddress = (addr: string) => {
+    if (!addr) return '';
+    if (addr.length <= 12) return addr;
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  };
+
+  // 格式化日期
+  const formatDate = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  // 获取状态显示
+  const getStatusDisplay = (status: Withdrawal['status']) => {
+    const statusMap = {
+      requested: { label: '申请中', color: 'text-yellow-600' },
+      sent: { label: '已发送', color: 'text-blue-600' },
+      confirmed: { label: '已确认', color: 'text-green-600' },
+      failed: { label: '失败', color: 'text-red-600' },
+    };
+    return statusMap[status] || { label: status, color: 'text-gray-600' };
+  };
+
+  if (!isConnected) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+          <h1 className="text-3xl font-bold text-gray-800 mb-6">管理您的数字资产</h1>
+          <Card className="p-8 text-center">
+            <WalletIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-600 mb-4">请先连接钱包以查看资产</p>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         {/* Page Title */}
-        <h1 className="text-3xl font-bold text-gray-800 mb-6">管理您的数字资产</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-3xl font-bold text-gray-800">管理您的数字资产</h1>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isLoading}
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            刷新
+          </Button>
+        </div>
 
         {/* Wallet Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          {/* USDT Card - Dark gradient */}
+          {/* Address Card - Dark gradient */}
           <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 text-white">
             <div className="p-6 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-300">链上 USDT 资产</p>
+                <p className="text-sm text-gray-300">钱包地址</p>
                 <span className="px-3 py-1 text-xs bg-white/10 rounded-full">ETHEREUM</span>
               </div>
               <div className="space-y-2">
-                <p className="text-4xl font-bold">{usdtBalance.toLocaleString()}</p>
-                <p className="text-sm text-gray-400">USDT</p>
+                <p className="text-lg font-mono">{formatAddress(address)}</p>
               </div>
               <div className="border-t border-white/10 pt-3 flex items-center gap-2 text-gray-300">
-                <span className="text-sm">{walletAddress}</span>
+                <span className="text-sm truncate flex-1">{address}</span>
                 <button
                   onClick={handleCopyAddress}
                   className="hover:text-white transition-colors"
@@ -65,10 +147,10 @@ export default function WalletPage() {
             <div className="p-6 space-y-3">
               <div className="flex items-center gap-2">
                 <WalletIcon className="w-5 h-5" />
-                <p className="text-sm text-white/90">平台总余额</p>
+                <p className="text-sm text-white/90">平台可用余额</p>
               </div>
               <div className="space-y-2">
-                <p className="text-4xl font-bold">{aptBalance.toLocaleString()}</p>
+                <p className="text-4xl font-bold">{balance.toLocaleString()}</p>
                 <p className="text-sm text-white/60">APT</p>
               </div>
               <div className="border-t border-white/20 pt-3 flex gap-3">
@@ -118,41 +200,52 @@ export default function WalletPage() {
         <Card className="bg-white/70 backdrop-blur-sm border-purple-100">
           <div className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-800">充值提现记录</h2>
-              <span className="text-sm text-gray-500">最近 5 条</span>
+              <h2 className="text-xl font-bold text-gray-800">提现记录</h2>
+              {withdrawals.length > 0 && (
+                <span className="text-sm text-gray-500">共 {withdrawals.length} 条</span>
+              )}
             </div>
-            <div className="space-y-3">
-              {transactions.map((tx) => (
-                <div
-                  key={tx.id}
-                  className="flex items-center gap-4 p-4 rounded-xl hover:bg-purple-50/50 transition-colors"
-                >
-                  <div className={`p-2.5 rounded-full ${
-                    tx.type === 'deposit' ? 'bg-green-100' : 'bg-orange-100'
-                  }`}>
-                    {tx.type === 'deposit' ? (
-                      <ArrowDownLeft className="w-5 h-5 text-green-600" />
-                    ) : (
-                      <ArrowUpRight className="w-5 h-5 text-orange-600" />
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-800">
-                      {tx.currency} {tx.type === 'deposit' ? '充值' : '提现'}
-                    </p>
-                    <p className="text-sm text-gray-500">{tx.date}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`font-bold ${
-                      tx.amount > 0 ? 'text-green-600' : 'text-orange-600'
-                    }`}>
-                      {tx.amount > 0 ? '+' : ''}{tx.amount} {tx.currency}
-                    </p>
-                    <p className="text-xs text-gray-500">{tx.status}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {isLoadingHistory ? (
+              <div className="text-center py-8">
+                <RefreshCw className="w-8 h-8 text-gray-400 animate-spin mx-auto mb-2" />
+                <p className="text-gray-500">加载中...</p>
+              </div>
+            ) : withdrawals.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500">暂无提现记录</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {withdrawals.map((tx) => {
+                  const statusInfo = getStatusDisplay(tx.status);
+                  return (
+                    <div
+                      key={tx.id}
+                      className="flex items-center gap-4 p-4 rounded-xl hover:bg-purple-50/50 transition-colors"
+                    >
+                      <div className="p-2.5 rounded-full bg-orange-100">
+                        <ArrowUpRight className="w-5 h-5 text-orange-600" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-800">提现</p>
+                        <p className="text-sm text-gray-500">{formatDate(tx.requestedAt)}</p>
+                        {tx.txHash && (
+                          <p className="text-xs text-gray-400 font-mono truncate">
+                            TX: {tx.txHash}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-orange-600">
+                          -{tx.amount} APT
+                        </p>
+                        <p className={`text-xs ${statusInfo.color}`}>{statusInfo.label}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </Card>
       </div>
@@ -161,12 +254,20 @@ export default function WalletPage() {
       <DepositDialog
         open={showDepositDialog}
         onOpenChange={setShowDepositDialog}
-        usdtBalance={usdtBalance}
+        onSuccess={() => {
+          refreshBalance();
+          toast.success('充值成功');
+        }}
       />
       <WithdrawDialog
         open={showWithdrawDialog}
         onOpenChange={setShowWithdrawDialog}
-        aptBalance={aptBalance}
+        aptBalance={balance}
+        onSuccess={() => {
+          refreshBalance();
+          fetchWithdrawals();
+          toast.success('提现申请已提交');
+        }}
       />
     </div>
   );

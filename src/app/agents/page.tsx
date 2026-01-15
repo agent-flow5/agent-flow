@@ -1,55 +1,103 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useMemo } from 'react';
-import { Bot, Plus, CheckCircle, TrendingUp, Search } from 'lucide-react';
-import { mockAgents } from '@/data/mockAgents';
+import { useState, useEffect, useMemo } from 'react';
+import { Bot, Plus, CheckCircle, TrendingUp, Search, RefreshCw } from 'lucide-react';
 import { AgentCard } from '@/components/features/agents/AgentCard';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { useWalletStore } from '@/store/walletStore';
+import { agentService, AgentDto } from '@/lib/api/services/agents';
+import { agentDtoToAgent } from '@/types';
+import { useToast } from '@/contexts/ToastContext';
 
 type TabType = 'all' | 'mine';
 
 export default function AgentsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const { address } = useWalletStore();
+  const [agents, setAgents] = useState<AgentDto[]>([]);
+  const [myAgents, setMyAgents] = useState<AgentDto[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const { isConnected } = useWalletStore();
+  const toast = useToast();
+
+  // 获取所有 Agents
+  const fetchAgents = async () => {
+    setIsLoading(true);
+    try {
+      const response = await agentService.getAgentList({ page: 1, pageSize: 100 });
+      setAgents(response.items);
+    } catch (error) {
+      console.error('获取 Agents 失败:', error);
+      toast.error('获取 Agents 列表失败');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 获取我的 Agents
+  const fetchMyAgents = async () => {
+    if (!isConnected) return;
+
+    try {
+      const response = await agentService.getMyAgents({ page: 1, pageSize: 100 });
+      setMyAgents(response.items);
+    } catch (error) {
+      console.error('获取我的 Agents 失败:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchAgents();
+  }, []);
+
+  useEffect(() => {
+    if (isConnected) {
+      fetchMyAgents();
+    } else {
+      setMyAgents([]);
+    }
+  }, [isConnected]);
+
+  // 当前显示的 agents
+  const currentAgents = activeTab === 'mine' ? myAgents : agents;
 
   // 过滤逻辑
   const filteredAgents = useMemo(() => {
-    let agents = mockAgents;
-
-    // 根据标签过滤
-    if (activeTab === 'mine') {
-      agents = agents.filter((agent) => agent.owner === address);
-    }
+    let result = currentAgents;
 
     // 根据搜索过滤
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      agents = agents.filter(
+      result = result.filter(
         (agent) =>
           agent.name.toLowerCase().includes(query) ||
-          agent.description.toLowerCase().includes(query)
+          (agent.description && agent.description.toLowerCase().includes(query))
       );
     }
 
-    return agents;
-  }, [activeTab, searchQuery, address]);
+    return result;
+  }, [currentAgents, searchQuery]);
 
   // 动态统计
   const stats = useMemo(() => {
-    const agents = activeTab === 'mine'
-      ? mockAgents.filter((a) => a.owner === address)
-      : mockAgents;
-
+    const agentList = currentAgents;
     return {
-      total: agents.length,
-      available: agents.filter((a) => a.status === 'available').length,
-      totalJobs: agents.reduce((sum, agent) => sum + agent.completedJobs, 0),
+      total: agentList.length,
+      available: agentList.filter((a) => a.status === 'enabled').length,
+      totalJobs: 0, // API 暂未返回完成任务数
     };
-  }, [activeTab, address]);
+  }, [currentAgents]);
+
+  const handleRefresh = async () => {
+    await fetchAgents();
+    if (isConnected) {
+      await fetchMyAgents();
+    }
+    toast.success('已刷新');
+  };
 
   return (
     <div className="min-h-screen">
@@ -60,14 +108,20 @@ export default function AgentsPage() {
             <h1 className="text-3xl font-bold text-gray-800 mb-2">Agents</h1>
             <p className="text-gray-600">浏览和管理平台上的 AI Agents</p>
           </div>
-          {address && (
-            <Link href="/agents/create">
-              <Button>
-                <Plus className="w-5 h-5" />
-                注册 Agent
-              </Button>
-            </Link>
-          )}
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              刷新
+            </Button>
+            {isConnected && (
+              <Link href="/agents/create">
+                <Button>
+                  <Plus className="w-5 h-5" />
+                  注册 Agent
+                </Button>
+              </Link>
+            )}
+          </div>
         </div>
 
         {/* Stats */}
@@ -145,10 +199,15 @@ export default function AgentsPage() {
         </div>
 
         {/* Agents Grid */}
-        {filteredAgents.length > 0 ? (
+        {isLoading ? (
+          <div className="text-center py-12">
+            <RefreshCw className="w-12 h-12 text-gray-400 animate-spin mx-auto mb-4" />
+            <p className="text-gray-500">加载中...</p>
+          </div>
+        ) : filteredAgents.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredAgents.map((agent) => (
-              <AgentCard key={agent.id} agent={agent} />
+              <AgentCard key={agent.id} agent={agentDtoToAgent(agent)} />
             ))}
           </div>
         ) : (
