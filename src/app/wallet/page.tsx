@@ -1,23 +1,66 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Copy, Wallet as WalletIcon, Lock, ArrowUpRight, ArrowDownLeft, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
 import { DepositDialog } from '@/components/features/wallet/DepositDialog';
 import { WithdrawDialog } from '@/components/features/wallet/WithdrawDialog';
-import { useWalletStore } from '@/store/walletStore';
-import { walletService, Withdrawal } from '@/lib/api/services/wallet';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
 import { useToast } from '@/contexts/ToastContext';
+import { walletService, Withdrawal } from '@/lib/api/services/wallet';
+import { useWalletStore } from '@/store/walletStore';
+import { ArrowDownLeft, ArrowUpRight, Copy, Lock, RefreshCw, Wallet as WalletIcon } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+
+// MockUSDT 合约地址 (Sepolia 测试网)
+const USDT_CONTRACT_ADDRESS = '0xbac7d7AAE206282201E83b31005fF2651565fc2C';
+// balanceOf(address) 函数选择器
+const BALANCE_OF_SELECTOR = '0x70a08231';
 
 export default function WalletPage() {
   const [showDepositDialog, setShowDepositDialog] = useState(false);
   const [showWithdrawDialog, setShowWithdrawDialog] = useState(false);
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [usdtBalance, setUsdtBalance] = useState<string | null>(null);
+  const [isLoadingUsdt, setIsLoadingUsdt] = useState(false);
 
   const { isConnected, address, balance, frozenBalance, refreshBalance, isLoading } = useWalletStore();
   const toast = useToast();
+
+  // 获取链上 USDT 余额
+  const fetchUsdtBalance = useCallback(async () => {
+    if (!isConnected || !address || !window.ethereum) return;
+
+    setIsLoadingUsdt(true);
+    try {
+      // 构造 balanceOf 调用数据: selector + address (padded to 32 bytes)
+      const paddedAddress = address.slice(2).padStart(64, '0');
+      const data = BALANCE_OF_SELECTOR + paddedAddress;
+
+      const result = await window.ethereum.request({
+        method: 'eth_call',
+        params: [
+          {
+            to: USDT_CONTRACT_ADDRESS,
+            data: data,
+          },
+          'latest',
+        ],
+      }) as string;
+
+      // 解析返回值 (uint256)，USDT 有 6 位小数
+      const balanceWei = BigInt(result);
+      const balanceUsdt = Number(balanceWei) / 1e6;
+      setUsdtBalance(balanceUsdt.toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }));
+    } catch (error) {
+      console.error('获取 USDT 余额失败:', error);
+      setUsdtBalance('--');
+    } finally {
+      setIsLoadingUsdt(false);
+    }
+  }, [isConnected, address]);
 
   // 获取提现记录
   const fetchWithdrawals = async () => {
@@ -37,8 +80,9 @@ export default function WalletPage() {
   useEffect(() => {
     if (isConnected) {
       fetchWithdrawals();
+      fetchUsdtBalance();
     }
-  }, [isConnected]);
+  }, [isConnected, fetchUsdtBalance]);
 
   const handleCopyAddress = () => {
     if (address) {
@@ -48,8 +92,11 @@ export default function WalletPage() {
   };
 
   const handleRefresh = async () => {
-    await refreshBalance();
-    await fetchWithdrawals();
+    await Promise.all([
+      refreshBalance(),
+      fetchWithdrawals(),
+      fetchUsdtBalance(),
+    ]);
     toast.success('已刷新');
   };
 
@@ -124,14 +171,16 @@ export default function WalletPage() {
           <Card className="bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700 text-white">
             <div className="p-6 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-300">钱包地址</p>
+                <p className="text-sm text-gray-300">链上USDT资产</p>
                 <span className="px-3 py-1 text-xs bg-white/10 rounded-full">ETHEREUM</span>
               </div>
               <div className="space-y-2">
-                <p className="text-lg font-mono">{formatAddress(address)}</p>
+                <p className="text-lg font-mono">
+                  {isLoadingUsdt ? '加载中...' : `${usdtBalance ?? '--'} USDT`}
+                </p>
               </div>
               <div className="border-t border-white/10 pt-3 flex items-center gap-2 text-gray-300">
-                <span className="text-sm truncate flex-1">{address}</span>
+                <span className="text-sm truncate flex-1">{formatAddress(address)}</span>
                 <button
                   onClick={handleCopyAddress}
                   className="hover:text-white transition-colors"
