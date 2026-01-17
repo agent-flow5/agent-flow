@@ -5,6 +5,7 @@ import { walletService } from '@/lib/api/services/wallet';
 import { getToken, setToken, clearToken } from '@/lib/api/client';
 import { API_CONFIG } from '@/lib/api/config';
 import { setMockUser } from '@/lib/api/mock';
+import { ensureSepoliaNetwork } from '@/lib/contracts/utils';
 
 // 声明 ethereum 类型
 declare global {
@@ -78,42 +79,20 @@ export const useWalletStore = create<WalletState>()(
               throw new Error('请先安装 MetaMask 钱包');
             }
 
-            // 检查并切换到 Sepolia 测试网
-            const chainId = (await window.ethereum.request({
-              method: 'eth_chainId',
-            })) as string;
-            const currentChainId = parseInt(chainId, 16);
-            const SEPOLIA_CHAIN_ID = 11155111;
-
-            if (currentChainId !== SEPOLIA_CHAIN_ID) {
-              try {
-                // 尝试切换到 Sepolia
-                await window.ethereum.request({
-                  method: 'wallet_switchEthereumChain',
-                  params: [{ chainId: `0x${SEPOLIA_CHAIN_ID.toString(16)}` }],
-                });
-              } catch (switchError: any) {
-                // 如果网络不存在，添加网络
-                if (switchError.code === 4902 || switchError.code === -32603) {
-                  await window.ethereum.request({
-                    method: 'wallet_addEthereumChain',
-                    params: [
-                      {
-                        chainId: `0x${SEPOLIA_CHAIN_ID.toString(16)}`,
-                        chainName: 'Sepolia Test Network',
-                        nativeCurrency: {
-                          name: 'SepoliaETH',
-                          symbol: 'ETH',
-                          decimals: 18,
-                        },
-                        rpcUrls: ['https://rpc.sepolia.org'],
-                        blockExplorerUrls: ['https://sepolia.etherscan.io'],
-                      },
-                    ],
-                  });
-                } else {
-                  throw new Error('请切换到 Sepolia 测试网');
-                }
+            // 自动切换到 Sepolia 测试网（如果不在 Sepolia）
+            // 使用工具函数确保网络正确
+            try {
+              await ensureSepoliaNetwork();
+            } catch (networkError: any) {
+              // 如果用户拒绝了网络切换，继续执行（让用户在 Navigation 中手动切换）
+              if (networkError?.code === 4001) {
+                console.warn('用户取消了网络切换');
+              } else {
+                // 其他错误（如网络不存在）也继续，让用户手动切换
+                console.warn(
+                  '自动切换网络失败，请手动切换到 Sepolia 测试网:',
+                  networkError
+                );
               }
             }
 
@@ -130,7 +109,6 @@ export const useWalletStore = create<WalletState>()(
 
             // 获取 nonce
             const nonceResponse = await authService.getNonce(address);
-
             // 请求签名
             const signature = (await window.ethereum.request({
               method: 'personal_sign',
