@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Info, ArrowDownLeft, Loader2 } from 'lucide-react';
+import { X, Info, ArrowDownLeft, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { walletService } from '@/lib/api/services/wallet';
 import { useToast } from '@/contexts/ToastContext';
+import { depositUSDT, getUSDTBalance } from '@/lib/contracts/utils';
+import { useWalletStore } from '@/store/walletStore';
 
 interface DepositDialogProps {
   open: boolean;
@@ -16,7 +18,28 @@ interface DepositDialogProps {
 export function DepositDialog({ open, onOpenChange, onSuccess }: DepositDialogProps) {
   const [amount, setAmount] = useState('100');
   const [isLoading, setIsLoading] = useState(false);
+  const [step, setStep] = useState<'input' | 'approving' | 'depositing' | 'notifying'>('input');
+  const [usdtBalance, setUsdtBalance] = useState<string | null>(null);
   const toast = useToast();
+  const { address, isConnected } = useWalletStore();
+
+  // 获取 USDT 余额
+  const fetchUSDTBalance = async () => {
+    if (!isConnected || !address) return;
+    try {
+      const balance = await getUSDTBalance();
+      setUsdtBalance(balance);
+    } catch (error) {
+      console.error('获取 USDT 余额失败:', error);
+    }
+  };
+
+  // 当对话框打开时获取余额
+  useEffect(() => {
+    if (open && isConnected) {
+      fetchUSDTBalance();
+    }
+  }, [open, isConnected]);
 
   const handleQuickAmount = (value: number) => {
     setAmount(value.toString());
@@ -29,19 +52,58 @@ export function DepositDialog({ open, onOpenChange, onSuccess }: DepositDialogPr
       return;
     }
 
+    if (!isConnected || !address) {
+      toast.error('请先连接钱包');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      // 使用开发用的 grant API 充值
-      await walletService.devGrant({ amount });
-      toast.success(`成功充值 ${amount} APT`);
+      // 步骤 1: 授权 USDT（在 depositUSDT 内部处理）
+      setStep('approving');
+      
+      // 步骤 2: 执行链上充值
+      setStep('depositing');
+      const txHash = await depositUSDT(amount);
+      
+      // 步骤 3: 通知后端
+      setStep('notifying');
+      await walletService.deposit({ amount, txHash });
+      
+      toast.success(`成功充值 ${amount} USDT，获得 ${amount} APT`);
       onOpenChange(false);
       onSuccess?.();
       setAmount('100');
-    } catch (error) {
+      setStep('input');
+    } catch (error: any) {
       console.error('充值失败:', error);
-      toast.error(error instanceof Error ? error.message : '充值失败');
+      
+      // 处理用户拒绝交易的情况
+      if (error?.code === 4001 || error?.message?.includes('User rejected')) {
+        toast.error('用户取消了交易');
+      } else if (error?.message?.includes('insufficient funds')) {
+        toast.error('USDT 余额不足');
+      } else if (error?.message?.includes('allowance')) {
+        toast.error('授权失败，请重试');
+      } else {
+        toast.error(error?.message || '充值失败，请检查网络连接');
+      }
+      setStep('input');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const getStepText = () => {
+    switch (step) {
+      case 'approving':
+        return '正在授权 USDT...';
+      case 'depositing':
+        return '正在执行充值交易...';
+      case 'notifying':
+        return '正在同步到后端...';
+      default:
+        return '处理中...';
     }
   };
 
@@ -63,7 +125,7 @@ export function DepositDialog({ open, onOpenChange, onSuccess }: DepositDialogPr
               </Dialog.Title>
             </div>
             <Dialog.Description className="text-sm text-gray-600">
-              获取平台测试币 APT（开发环境）
+              使用 USDT 充值获得平台代币 APT（1:1 比例）
             </Dialog.Description>
           </div>
 
@@ -73,10 +135,13 @@ export function DepositDialog({ open, onOpenChange, onSuccess }: DepositDialogPr
               <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
               <div className="space-y-1">
                 <p className="text-sm font-medium text-blue-900">
-                  开发测试模式
+                  链上充值
                 </p>
                 <p className="text-sm text-blue-700">
-                  当前为开发环境，可直接获取测试用的平台币
+                  {usdtBalance !== null ? `您的 USDT 余额: ${usdtBalance} USDT` : '正在获取余额...'}
+                </p>
+                <p className="text-xs text-blue-600 mt-1">
+                  充值需要授权 USDT 给 Treasury 合约，并支付 Gas 费用
                 </p>
               </div>
             </div>
@@ -85,7 +150,7 @@ export function DepositDialog({ open, onOpenChange, onSuccess }: DepositDialogPr
           {/* Amount Input */}
           <div className="space-y-2 mb-4">
             <label htmlFor="deposit-amount" className="block text-sm font-medium text-gray-800">
-              充值金额 (APT)
+              充值金额 (USDT)
             </label>
             <div className="relative">
               <input
@@ -103,12 +168,30 @@ export function DepositDialog({ open, onOpenChange, onSuccess }: DepositDialogPr
           </div>
 
           {/* Preview */}
-          <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-100 rounded-xl p-4 mb-4">
-            <p className="text-sm text-gray-600 mb-1">您将获得</p>
-            <p className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
-              {aptAmount.toFixed(2)} APT
-            </p>
+          <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-100 rounded-xl p-4 mb-4 space-y-2">
+            <div className="flex justify-between items-center">
+              <p className="text-sm text-gray-600">充值 USDT</p>
+              <p className="text-lg font-semibold text-gray-800">{aptAmount.toFixed(2)} USDT</p>
+            </div>
+            <div className="flex justify-between items-center border-t border-purple-200 pt-2">
+              <p className="text-sm text-gray-600">将获得 APT</p>
+              <p className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                {aptAmount.toFixed(2)} APT
+              </p>
+            </div>
           </div>
+
+          {/* Warning */}
+          {usdtBalance !== null && parseFloat(amount) > parseFloat(usdtBalance) && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-yellow-800">
+                  USDT 余额不足，当前余额: {usdtBalance} USDT
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Quick Amount Buttons */}
           <div className="space-y-2 mb-6">
@@ -151,7 +234,7 @@ export function DepositDialog({ open, onOpenChange, onSuccess }: DepositDialogPr
               {isLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  处理中...
+                  {getStepText()}
                 </>
               ) : (
                 '确认充值'

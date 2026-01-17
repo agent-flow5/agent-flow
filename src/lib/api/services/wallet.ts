@@ -10,28 +10,34 @@ import { mockWallet } from '../mock';
 
 // 钱包余额
 export interface WalletBalance {
-  available: string;    // 可用余额（平台币）
-  frozen: string;       // 冻结余额（平台币）
+  available: string; // 可用余额（平台币）
+  frozen: string; // 冻结余额（平台币）
 }
 
 // 提现记录
 export interface Withdrawal {
-  id: string;           // 提现记录 ID
-  amount: string;       // 提现金额（平台币）
-  status: 'requested' | 'sent' | 'confirmed' | 'failed';  // 提现状态
-  txHash: string;       // 链上交易哈希（可空）
-  requestedAt: string;  // 申请时间（ISO 8601）
-  updatedAt: string;    // 更新时间（ISO 8601）
+  id: string; // 提现记录 ID
+  amount: string; // 提现金额（平台币）
+  status: 'requested' | 'sent' | 'confirmed' | 'failed'; // 提现状态
+  txHash: string; // 链上交易哈希（可空）
+  requestedAt: string; // 申请时间（ISO 8601）
+  updatedAt: string; // 更新时间（ISO 8601）
 }
 
 // 提现请求
 export interface WithdrawRequest {
-  amount: string;       // 提现金额（必须为正数）
+  amount: string; // 提现金额（必须为正数）
 }
 
 // 发放余额请求（开发用）
 export interface GrantRequest {
-  amount: string;       // 发放金额（必须为正数）
+  amount: string; // 发放金额（必须为正数）
+}
+
+// 充值请求
+export interface DepositRequest {
+  amount: string; // 充值金额（USDT）
+  txHash: string; // 链上交易哈希
 }
 
 // ============ API 方法 ============
@@ -76,10 +82,22 @@ export async function devGrant(data: GrantRequest): Promise<WalletBalance> {
   return apiClient.post<WalletBalance>('/wallet/dev/grant', data);
 }
 
+/**
+ * 充值（通知后端链上充值交易）
+ */
+export async function deposit(data: DepositRequest): Promise<WalletBalance> {
+  if (API_CONFIG.USE_MOCK) {
+    // Mock 模式下直接返回余额更新
+    return mockWallet.devGrant({ amount: data.amount });
+  }
+  return apiClient.post<WalletBalance>('/wallet/deposit', data);
+}
+
 // 导出钱包服务对象
 export const walletService = {
   getBalance,
   withdraw,
   getWithdrawals,
   devGrant,
+  deposit,
 };

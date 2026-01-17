@@ -6,6 +6,8 @@ import { X, Info, ArrowUpRight, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { walletService } from '@/lib/api/services/wallet';
 import { useToast } from '@/contexts/ToastContext';
+import { withdrawPlatformToken } from '@/lib/contracts/utils';
+import { useWalletStore } from '@/store/walletStore';
 
 interface WithdrawDialogProps {
   open: boolean;
@@ -17,7 +19,9 @@ interface WithdrawDialogProps {
 export function WithdrawDialog({ open, onOpenChange, aptBalance, onSuccess }: WithdrawDialogProps) {
   const [amount, setAmount] = useState('100');
   const [isLoading, setIsLoading] = useState(false);
+  const [step, setStep] = useState<'input' | 'approving' | 'withdrawing' | 'notifying'>('input');
   const toast = useToast();
+  const { address, isConnected } = useWalletStore();
 
   const handleQuickAmount = (value: number) => {
     setAmount(value.toString());
@@ -39,18 +43,58 @@ export function WithdrawDialog({ open, onOpenChange, aptBalance, onSuccess }: Wi
       return;
     }
 
+    if (!isConnected || !address) {
+      toast.error('请先连接钱包');
+      return;
+    }
+
     setIsLoading(true);
     try {
+      // 步骤 1: 授权 PlatformToken（在 withdrawPlatformToken 内部处理）
+      setStep('approving');
+      
+      // 步骤 2: 执行链上提现
+      setStep('withdrawing');
+      const txHash = await withdrawPlatformToken(amount);
+      
+      // 步骤 3: 通知后端
+      setStep('notifying');
       await walletService.withdraw({ amount });
-      toast.success('提现申请已提交');
+      
+      toast.success(`成功提现 ${amount} APT，已换回 ${amount} USDT`);
       onOpenChange(false);
       onSuccess?.();
       setAmount('100');
-    } catch (error) {
+      setStep('input');
+    } catch (error: any) {
       console.error('提现失败:', error);
-      toast.error(error instanceof Error ? error.message : '提现失败');
+      
+      // 处理用户拒绝交易的情况
+      if (error?.code === 4001 || error?.message?.includes('User rejected')) {
+        toast.error('用户取消了交易');
+      } else if (error?.message?.includes('insufficient balance')) {
+        toast.error('APT 余额不足');
+      } else if (error?.message?.includes('allowance')) {
+        toast.error('授权失败，请重试');
+      } else {
+        toast.error(error?.message || '提现失败，请检查网络连接');
+      }
+      setStep('input');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const getStepText = () => {
+    switch (step) {
+      case 'approving':
+        return '正在授权 APT...';
+      case 'withdrawing':
+        return '正在执行提现交易...';
+      case 'notifying':
+        return '正在同步到后端...';
+      default:
+        return '处理中...';
     }
   };
 
@@ -72,7 +116,7 @@ export function WithdrawDialog({ open, onOpenChange, aptBalance, onSuccess }: Wi
               </Dialog.Title>
             </div>
             <Dialog.Description className="text-sm text-gray-600">
-              将平台币 APT 提现到链上钱包
+              将平台币 APT 提现换回 USDT（1:1 比例）
             </Dialog.Description>
           </div>
 
@@ -118,8 +162,12 @@ export function WithdrawDialog({ open, onOpenChange, aptBalance, onSuccess }: Wi
           {/* Preview */}
           <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-100 rounded-xl p-4 mb-4 space-y-2">
             <div className="flex justify-between items-center">
-              <p className="text-sm text-gray-600">提现金额</p>
-              <p className="text-xl font-bold text-orange-600">{withdrawAmount.toFixed(2)} APT</p>
+              <p className="text-sm text-gray-600">提现 APT</p>
+              <p className="text-lg font-semibold text-gray-800">{withdrawAmount.toFixed(2)} APT</p>
+            </div>
+            <div className="flex justify-between items-center border-t border-orange-200 pt-2">
+              <p className="text-sm text-gray-600">将获得 USDT</p>
+              <p className="text-xl font-bold text-orange-600">{withdrawAmount.toFixed(2)} USDT</p>
             </div>
           </div>
 
@@ -148,9 +196,14 @@ export function WithdrawDialog({ open, onOpenChange, aptBalance, onSuccess }: Wi
           <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-6">
             <div className="flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-yellow-800">
-                提现将转账至您连接的钱包地址，请确认钱包地址正确
-              </p>
+              <div className="space-y-1">
+                <p className="text-sm text-yellow-800">
+                  提现将转账至您连接的钱包地址，请确认钱包地址正确
+                </p>
+                <p className="text-xs text-yellow-700">
+                  提现需要授权 APT 给 Treasury 合约，并支付 Gas 费用
+                </p>
+              </div>
             </div>
           </div>
 
@@ -178,7 +231,7 @@ export function WithdrawDialog({ open, onOpenChange, aptBalance, onSuccess }: Wi
               {isLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  处理中...
+                  {getStepText()}
                 </>
               ) : (
                 '确认提现'

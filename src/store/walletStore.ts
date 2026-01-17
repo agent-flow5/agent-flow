@@ -10,9 +10,15 @@ import { setMockUser } from '@/lib/api/mock';
 declare global {
   interface Window {
     ethereum?: {
-      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+      request: (args: {
+        method: string;
+        params?: unknown[];
+      }) => Promise<unknown>;
       on: (event: string, callback: (...args: unknown[]) => void) => void;
-      removeListener: (event: string, callback: (...args: unknown[]) => void) => void;
+      removeListener: (
+        event: string,
+        callback: (...args: unknown[]) => void
+      ) => void;
       isMetaMask?: boolean;
     };
   }
@@ -72,10 +78,49 @@ export const useWalletStore = create<WalletState>()(
               throw new Error('请先安装 MetaMask 钱包');
             }
 
+            // 检查并切换到 Sepolia 测试网
+            const chainId = (await window.ethereum.request({
+              method: 'eth_chainId',
+            })) as string;
+            const currentChainId = parseInt(chainId, 16);
+            const SEPOLIA_CHAIN_ID = 11155111;
+
+            if (currentChainId !== SEPOLIA_CHAIN_ID) {
+              try {
+                // 尝试切换到 Sepolia
+                await window.ethereum.request({
+                  method: 'wallet_switchEthereumChain',
+                  params: [{ chainId: `0x${SEPOLIA_CHAIN_ID.toString(16)}` }],
+                });
+              } catch (switchError: any) {
+                // 如果网络不存在，添加网络
+                if (switchError.code === 4902 || switchError.code === -32603) {
+                  await window.ethereum.request({
+                    method: 'wallet_addEthereumChain',
+                    params: [
+                      {
+                        chainId: `0x${SEPOLIA_CHAIN_ID.toString(16)}`,
+                        chainName: 'Sepolia Test Network',
+                        nativeCurrency: {
+                          name: 'SepoliaETH',
+                          symbol: 'ETH',
+                          decimals: 18,
+                        },
+                        rpcUrls: ['https://rpc.sepolia.org'],
+                        blockExplorerUrls: ['https://sepolia.etherscan.io'],
+                      },
+                    ],
+                  });
+                } else {
+                  throw new Error('请切换到 Sepolia 测试网');
+                }
+              }
+            }
+
             // 请求连接钱包
-            const accounts = await window.ethereum.request({
+            const accounts = (await window.ethereum.request({
               method: 'eth_requestAccounts',
-            }) as string[];
+            })) as string[];
 
             if (!accounts || accounts.length === 0) {
               throw new Error('未获取到钱包地址');
@@ -87,10 +132,10 @@ export const useWalletStore = create<WalletState>()(
             const nonceResponse = await authService.getNonce(address);
 
             // 请求签名
-            const signature = await window.ethereum.request({
+            const signature = (await window.ethereum.request({
               method: 'personal_sign',
               params: [nonceResponse.message, address],
-            }) as string;
+            })) as string;
 
             // 验证签名并获取 token
             const verifyResponse = await authService.verify({
@@ -131,12 +176,20 @@ export const useWalletStore = create<WalletState>()(
             let errorMessage = '连接失败';
             if (error instanceof Error) {
               const msg = error.message.toLowerCase();
-              if (msg.includes('user rejected') || msg.includes('user denied')) {
+              if (
+                msg.includes('user rejected') ||
+                msg.includes('user denied')
+              ) {
                 errorMessage = '用户取消了签名请求';
               } else if (msg.includes('already processing')) {
                 errorMessage = '请在 MetaMask 中完成操作';
-              } else if (msg.includes('fetch') || msg.includes('failed to fetch') || msg.includes('networkerror')) {
-                errorMessage = '无法连接服务器，请确保后端服务已启动 (localhost:3001)';
+              } else if (
+                msg.includes('fetch') ||
+                msg.includes('failed to fetch') ||
+                msg.includes('networkerror')
+              ) {
+                errorMessage =
+                  '无法连接服务器，请确保后端服务已启动 (localhost:3001)';
               } else if (msg.includes('cors')) {
                 errorMessage = '跨域请求被拒绝，请检查后端 CORS 配置';
               } else {
@@ -162,7 +215,10 @@ export const useWalletStore = create<WalletState>()(
 
           // 移除监听器
           if (window.ethereum && handleAccountsChanged) {
-            window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+            window.ethereum.removeListener(
+              'accountsChanged',
+              handleAccountsChanged
+            );
           }
 
           set({

@@ -8,7 +8,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { walletService, Withdrawal } from '@/lib/api/services/wallet';
 import { useWalletStore } from '@/store/walletStore';
 import { ArrowDownLeft, ArrowUpRight, Copy, Lock, RefreshCw, Wallet as WalletIcon } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 
 // MockUSDT 合约地址 (Sepolia 测试网)
 const USDT_CONTRACT_ADDRESS = '0xbac7d7AAE206282201E83b31005fF2651565fc2C';
@@ -22,6 +22,7 @@ export default function WalletPage() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [usdtBalance, setUsdtBalance] = useState<string | null>(null);
   const [isLoadingUsdt, setIsLoadingUsdt] = useState(false);
+  const hasShownNetworkWarningRef = useRef(false);
 
   const { isConnected, address, balance, frozenBalance, refreshBalance, isLoading } = useWalletStore();
   const toast = useToast();
@@ -32,6 +33,29 @@ export default function WalletPage() {
 
     setIsLoadingUsdt(true);
     try {
+      // 检查当前网络是否为 Sepolia 测试网
+      const chainId = await window.ethereum.request({
+        method: 'eth_chainId',
+      }) as string;
+      const currentChainId = parseInt(chainId, 16);
+      const SEPOLIA_CHAIN_ID = 11155111;
+
+      if (currentChainId !== SEPOLIA_CHAIN_ID) {
+        console.warn(`当前网络 Chain ID: ${currentChainId}，需要切换到 Sepolia 测试网 (${SEPOLIA_CHAIN_ID})`);
+        setUsdtBalance('--');
+        // 只显示一次警告，避免重复提示
+        if (!hasShownNetworkWarningRef.current) {
+          toast.error('请切换到 Sepolia 测试网');
+          hasShownNetworkWarningRef.current = true;
+        }
+        return;
+      }
+
+      // 如果网络正确，重置警告标记
+      if (hasShownNetworkWarningRef.current) {
+        hasShownNetworkWarningRef.current = false;
+      }
+
       // 构造 balanceOf 调用数据: selector + address (padded to 32 bytes)
       const paddedAddress = address.slice(2).padStart(64, '0');
       const data = BALANCE_OF_SELECTOR + paddedAddress;
@@ -46,6 +70,12 @@ export default function WalletPage() {
           'latest',
         ],
       }) as string;
+
+      // 检查返回值是否有效
+      if (!result || result === '0x' || result === '0x0') {
+        setUsdtBalance('0.00');
+        return;
+      }
 
       // 解析返回值 (uint256)，USDT 有 6 位小数
       const balanceWei = BigInt(result);
@@ -76,6 +106,23 @@ export default function WalletPage() {
       setIsLoadingHistory(false);
     }
   };
+
+  // 监听网络变化
+  useEffect(() => {
+    if (!window.ethereum || !isConnected) return;
+
+    const handleChainChanged = () => {
+      // 网络切换时重置警告标记并重新获取余额
+      hasShownNetworkWarningRef.current = false;
+      fetchUsdtBalance();
+    };
+
+    window.ethereum.on('chainChanged', handleChainChanged);
+
+    return () => {
+      window.ethereum?.removeListener('chainChanged', handleChainChanged);
+    };
+  }, [isConnected, fetchUsdtBalance]);
 
   useEffect(() => {
     if (isConnected) {
