@@ -53,17 +53,30 @@ export function clearToken(): void {
 // 构建完整 URL
 function buildUrl(endpoint: string, params?: Record<string, string | number | undefined>): string {
   const baseUrl = `${API_CONFIG.BASE_URL}${API_CONFIG.API_PREFIX}`;
-  const url = new URL(endpoint, baseUrl);
 
+  // 处理相对路径的情况（如 /api）
+  let fullUrl: string;
+  if (baseUrl.startsWith('/')) {
+    // 相对路径，拼接当前域名
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    fullUrl = `${origin}${baseUrl}${endpoint}`;
+  } else {
+    // 完整 URL
+    fullUrl = `${baseUrl}${endpoint}`;
+  }
+
+  // 添加查询参数
   if (params) {
+    const url = new URL(fullUrl);
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined) {
         url.searchParams.append(key, String(value));
       }
     });
+    return url.toString();
   }
 
-  return url.toString();
+  return fullUrl;
 }
 
 // 统一请求处理
