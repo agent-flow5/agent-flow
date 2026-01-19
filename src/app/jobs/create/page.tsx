@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { useToast } from '@/contexts/ToastContext';
@@ -11,7 +11,7 @@ import { jobService } from '@/lib/api/services/jobs';
 import { agentService, AgentDto } from '@/lib/api/services/agents';
 import { useWalletStore } from '@/store/walletStore';
 
-export default function CreateJobPage() {
+function CreateJobForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const toast = useToast();
@@ -253,5 +253,23 @@ export default function CreateJobPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+// 加载状态组件
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <RefreshCw className="w-8 h-8 text-purple-500 animate-spin" />
+    </div>
+  );
+}
+
+// 主页面组件，使用 Suspense 包裹表单
+export default function CreateJobPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <CreateJobForm />
+    </Suspense>
   );
 }

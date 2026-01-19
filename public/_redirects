@@ -1,0 +1,3 @@
+# SPA fallback for Cloudflare Pages
+# 让所有未匹配的路径返回 index.html，由客户端路由处理
+/* /index.html 200
