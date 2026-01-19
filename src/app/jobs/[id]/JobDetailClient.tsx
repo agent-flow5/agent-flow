@@ -10,7 +10,13 @@ import { Badge } from '@/components/ui/Badge';
 import { jobStatusConfig } from '@/lib/statusConfig';
 import { useToast } from '@/contexts/ToastContext';
 import { jobService, JobDto } from '@/lib/api/services/jobs';
+import { agentService } from '@/lib/api/services/agents';
 import { useWalletStore } from '@/store/walletStore';
+import {
+  getPlatformTokenBalance,
+  getPlatformTokenAllowance,
+  approvePlatformToken,
+} from '@/lib/contracts/utils';
 
 export default function JobDetailClient() {
   const params = useParams();
@@ -24,6 +30,7 @@ export default function JobDetailClient() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
   const [resultText, setResultText] = useState('');
+  const [submitStep, setSubmitStep] = useState<'idle' | 'checking' | 'approving' | 'submitting'>('idle');
 
   const fetchJobDetail = async () => {
     if (!isConnected) {
@@ -52,7 +59,32 @@ export default function JobDetailClient() {
     if (!job) return;
 
     setIsSubmitting(true);
+    setSubmitStep('checking');
+
     try {
+      // 1. 获取结算金额（Agent 价格）
+      const agent = await agentService.getAgentDetail(job.agentId);
+      const settleAmount = agent.price;
+
+      // 2. 检查 PlatformToken 余额是否足够
+      const balance = await getPlatformTokenBalance();
+      if (parseFloat(balance) < parseFloat(settleAmount)) {
+        toast.error(`APT 余额不足，需要 ${settleAmount} APT，当前余额 ${balance} APT`);
+        return;
+      }
+
+      // 3. 检查对 Treasury 的授权额度
+      const allowance = await getPlatformTokenAllowance();
+      if (parseFloat(allowance) < parseFloat(settleAmount)) {
+        // 需要授权
+        setSubmitStep('approving');
+        toast.info('需要授权 APT 才能完成结算，请在钱包中确认');
+        await approvePlatformToken(settleAmount);
+        toast.success('授权成功');
+      }
+
+      // 4. 提交结算
+      setSubmitStep('submitting');
       const updatedJob = await jobService.submitJobResult(jobId, {
         resultText: resultText.trim() || undefined,
       });
@@ -60,11 +92,20 @@ export default function JobDetailClient() {
       setShowCompleteDialog(false);
       setResultText('');
       toast.success('任务已标记为完成！');
-    } catch (error) {
+    } catch (error: any) {
       console.error('提交任务结果失败:', error);
-      toast.error(error instanceof Error ? error.message : '提交失败');
+      // 处理不同类型的错误
+      if (error?.code === 4001 || error?.message?.includes('User rejected')) {
+        toast.error('用户取消了交易');
+      } else if (error?.message?.includes('insufficient')) {
+        toast.error('余额不足，请先充值');
+      } else {
+        // 显示后端返回的友好错误信息
+        toast.error(error instanceof Error ? error.message : '提交失败，请重试');
+      }
     } finally {
       setIsSubmitting(false);
+      setSubmitStep('idle');
     }
   };
 
@@ -323,8 +364,10 @@ export default function JobDetailClient() {
                   >
                     {isSubmitting ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        提交中...
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        {submitStep === 'checking' && '检查中...'}
+                        {submitStep === 'approving' && '授权中...'}
+                        {submitStep === 'submitting' && '提交中...'}
                       </>
                     ) : (
                       '确认完成'

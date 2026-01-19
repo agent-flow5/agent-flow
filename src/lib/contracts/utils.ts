@@ -297,3 +297,21 @@ export async function getPlatformTokenBalance(
   const balance = await platformToken.balanceOf(userAddress);
   return formatTokenAmount(balance);
 }
+
+/**
+ * 获取用户 PlatformToken 对 Treasury 的授权额度
+ * @param address 用户地址（默认当前账户）
+ * @returns 授权额度（格式化后的字符串）
+ */
+export async function getPlatformTokenAllowance(
+  address?: string
+): Promise<string> {
+  const platformToken = await getPlatformTokenContract();
+  const signer = await getSigner();
+  const userAddress = address || (await signer.getAddress());
+  const allowance = await platformToken.allowance(
+    userAddress,
+    CONTRACT_ADDRESSES.TREASURY
+  );
+  return formatTokenAmount(allowance);
+}
